@@ -1,0 +1,25 @@
+{
+  "name": "liquor-pos",
+  "version": "1.0.0",
+  "description": "Professional Liquor POS system - Node.js + Express + SQLite REST API with a dashboard SPA.",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/seed.js --force",
+    "reset": "node src/seed.js --reset",
+    "adduser": "node src/adduser.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0"
+  }
+}

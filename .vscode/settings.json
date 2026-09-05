@@ -1,0 +1,9 @@
+{
+  "sqlite.autopilot": false,
+  "files.associations": { "*.sql": "sql" },
+  "editor.formatOnSave": false,
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/database/*.db": true
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: install",
+      "type": "shell",
+      "command": "npm install",
+      "problemMatcher": []
+    },
+    {
+      "label": "POS: start server",
+      "type": "npm",
+      "script": "start",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "runOptions": { "instanceLimit": 1 }
+    },
+    {
+      "label": "POS: dev (watch)",
+      "type": "npm",
+      "script": "dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "POS: seed database",
+      "type": "npm",
+      "script": "seed",
+      "problemMatcher": []
+    },
+    {
+      "label": "POS: reset database",
+      "type": "npm",
+      "script": "reset",
+      "problemMatcher": []
+    }
+  ]
+}

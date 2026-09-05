@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liquor POS</title>
+  <!-- Tailwind is vendored locally so the app runs fully offline -->
+  <script src="/vendor/tailwind.js"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { brand: { DEFAULT: '#7c3aed', dark: '#5b21b6' } } } }
+    };
+  </script>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="bg-slate-100 text-slate-800">
+
+  <!-- LOGIN -->
+  <div id="login-view" class="min-h-screen flex items-center justify-center p-4">
+    <form id="login-form" class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-8 space-y-5">
+      <div class="text-center">
+        <div class="text-4xl">🍾</div>
+        <h1 class="text-2xl font-bold mt-2">Liquor POS</h1>
+        <p class="text-sm text-slate-500">Sign in to continue</p>
+      </div>
+      <div>
+        <label class="text-sm font-medium">Username</label>
+        <input name="username" autocomplete="username" value="admin"
+          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-brand outline-none" />
+      </div>
+      <div>
+        <label class="text-sm font-medium">Password</label>
+        <input name="password" type="password" autocomplete="current-password" value="admin123"
+          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-brand outline-none" />
+      </div>
+      <p id="login-error" class="text-sm text-red-600 hidden"></p>
+      <button class="w-full bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2.5 transition">
+        Sign in
+      </button>
+      <p class="text-xs text-center text-slate-400">admin / admin123 &nbsp;·&nbsp; cashier / cashier123</p>
+    </form>
+  </div>
+
+  <!-- APP SHELL -->
+  <div id="app-view" class="hidden min-h-screen md:flex">
+    <aside class="bg-slate-900 text-slate-300 md:w-60 w-full md:min-h-screen flex md:flex-col">
+      <div class="p-4 text-white font-bold text-lg flex items-center gap-2">🍾 <span class="hidden md:inline">Liquor POS</span></div>
+      <nav id="nav" class="flex md:flex-col gap-1 px-2 pb-2 flex-1 overflow-x-auto"></nav>
+      <div class="p-3 border-t border-slate-800 hidden md:block">
+        <p id="who" class="text-sm font-medium text-white"></p>
+        <p id="who-role" class="text-xs text-slate-400 capitalize"></p>
+        <button id="logout" class="mt-2 text-xs text-red-400 hover:text-red-300">Log out</button>
+      </div>
+    </aside>
+    <main id="content" class="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full"></main>
+  </div>
+
+  <!-- toast -->
+  <div id="toast" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

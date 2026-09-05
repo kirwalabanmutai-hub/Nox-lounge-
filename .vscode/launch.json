@@ -1,0 +1,50 @@
+{
+  // Debug the Liquor POS server and/or open the browser against it.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "POS: Server",
+      "skipFiles": ["<node_internals>/**"],
+      "program": "${workspaceFolder}/src/server.js",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "restart": true
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "POS: Server (watch / auto-reload)",
+      "skipFiles": ["<node_internals>/**"],
+      "runtimeArgs": ["--watch"],
+      "program": "${workspaceFolder}/src/server.js",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "POS: Reset + seed database",
+      "skipFiles": ["<node_internals>/**"],
+      "program": "${workspaceFolder}/src/seed.js",
+      "args": ["--reset"],
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "POS: Open in Chrome",
+      "url": "http://localhost:4000",
+      "webRoot": "${workspaceFolder}/public"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "POS: Server + Chrome",
+      "configurations": ["POS: Server", "POS: Open in Chrome"],
+      "stopAll": true
+    }
+  ]
+}

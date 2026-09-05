@@ -1,0 +1,53 @@
+### Liquor POS – REST Client scratchpad (install "humao.rest-client")
+@base = http://localhost:4000/api
+
+### Health
+GET {{base}}/health
+
+### Login (run this first – captures the token)
+# @name login
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "username": "admin", "password": "admin123" }
+
+@token = {{login.response.body.token}}
+
+### Current user
+GET {{base}}/auth/me
+Authorization: Bearer {{token}}
+
+### Products
+GET {{base}}/products
+Authorization: Bearer {{token}}
+
+### Low stock
+GET {{base}}/inventory/low-stock
+Authorization: Bearer {{token}}
+
+### Dashboard summary
+GET {{base}}/dashboard/summary
+Authorization: Bearer {{token}}
+
+### Checkout a sale
+POST {{base}}/sales
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "customer_name": "Walk-in",
+  "discount": 0,
+  "items":    [{ "product_id": 1, "quantity": 2 }, { "product_id": 2, "quantity": 3 }],
+  "payments": [{ "payment_method": "cash", "amount": 3480, "amount_received": 4000 }]
+}
+
+### Sales history
+GET {{base}}/sales?limit=20
+Authorization: Bearer {{token}}
+
+### Stock movement
+POST {{base}}/inventory/adjust
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "product_id": 3, "transaction_type": "stock_in", "quantity": 12, "notes": "Weekly delivery" }
