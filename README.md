@@ -23,6 +23,9 @@ Then open **http://localhost:4000**.
 
 > Installing on a real shop PC (auto-start, app window, **barcode scanner**,
 > **receipt printer**)? See **[INSTALL.md](INSTALL.md)**.
+>
+> Want a shareable cloud link to demo/review before installing anything? See
+> **[DEPLOY.md](DEPLOY.md)** (Vercel + a free Turso database).
 
 On first run the database file `database/pos.db` is created, the schema is applied and
 demo data (users, categories, 8 products, opening stock) is seeded automatically.
@@ -35,8 +38,9 @@ demo data (users, categories, 8 products, opening stock) is seeded automatically
 | `npm run reset` | **Wipe** everything and re-seed |
 
 ### Requirements
-Node.js **≥ 22.5** (uses the built-in `node:sqlite` module — no native build step,
-no MySQL/XAMPP needed).
+Node.js **≥ 18**. Uses `@libsql/client` (SQLite-compatible) — a local file by default
+(no MySQL/XAMPP needed), or a remote [Turso](https://turso.tech) database when
+`TURSO_DATABASE_URL` is set (required for a serverless deploy — see [DEPLOY.md](DEPLOY.md)).
 
 ### Works offline / during a network outage
 The app has **no runtime dependency on the internet**:
@@ -81,14 +85,19 @@ Every sale writes a `sale` ledger row and a DB trigger keeps `products.stock_qua
 ```
 POS SYTEM/
 ├── mysql.sql                     Reference production schema (MySQL 8 / MariaDB) + views + trigger
+├── vercel.json                   Routes every request to api/index.js (cloud deploy only)
+├── api/
+│   └── index.js                  Vercel serverless entrypoint (wraps src/app.js)
 ├── database/
 │   ├── schema.sqlite.sql         Runtime schema (mirrors mysql.sql)
-│   └── pos.db                    Created on first run (git-ignored)
+│   └── pos.db                    Created on first run (git-ignored, local mode only)
 ├── src/
-│   ├── server.js                 Express app, static SPA host, auto-migrate + auto-seed
-│   ├── db.js                     node:sqlite connection + query helpers + tx()
+│   ├── app.js                    Builds the Express app (routes, static, error handler) - shared by server.js and api/index.js
+│   ├── server.js                 Local entrypoint: `npm start` -> app.listen()
+│   ├── db.js                     @libsql/client connection (local file, or remote Turso if TURSO_DATABASE_URL is set) + query helpers + tx()
+│   ├── asyncHandler.js           Wraps async route handlers so thrown/rejected errors reach Express's error handler
 │   ├── auth.js                   JWT sign / verify / role middleware
-│   ├── seed.js                   Demo data (npm run seed / reset)
+│   ├── seed.js                   Demo data (npm run seed / reset) - also auto-runs on first request against an empty DB
 │   └── routes/
 │       ├── auth.routes.js        POST /login, GET /me
 │       ├── catalog.routes.js     /products /categories /suppliers

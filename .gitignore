@@ -1,5 +1,6 @@
 node_modules/
 .env
+.vercel/
 database/*.db
 database/*.db-journal
 database/*.db-wal

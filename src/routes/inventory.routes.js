@@ -1,16 +1,17 @@
 'use strict';
 
 const express = require('express');
-const { query, get, run, tx } = require('../db');
+const { query, get, tx } = require('../db');
 const { authRequired, requireRole } = require('../auth');
+const ah = require('../asyncHandler');
 
 const router = express.Router();
 router.use(authRequired);
 
 // GET /api/inventory/transactions  - recent stock movements
-router.get('/transactions', (req, res) => {
+router.get('/transactions', ah(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const rows = query(
+  const rows = await query(
     `SELECT it.*, p.name AS product_name, u.name AS user_name
      FROM inventory_transactions it
      JOIN products p ON p.id = it.product_id
@@ -19,26 +20,26 @@ router.get('/transactions', (req, res) => {
     [limit]
   );
   res.json(rows);
-});
+}));
 
 // GET /api/inventory/low-stock
-router.get('/low-stock', (req, res) => {
-  res.json(query(
+router.get('/low-stock', ah(async (req, res) => {
+  res.json(await query(
     `SELECT id, name, brand, size, stock_quantity, reorder_level, selling_price
      FROM products
      WHERE is_active = 1 AND stock_quantity <= reorder_level
      ORDER BY stock_quantity ASC`
   ));
-});
+}));
 
 // POST /api/inventory/adjust  - stock_in / damage / adjustment / return
-router.post('/adjust', requireRole('admin', 'manager'), (req, res) => {
+router.post('/adjust', requireRole('admin', 'manager'), ah(async (req, res) => {
   const { product_id, transaction_type, quantity, notes } = req.body || {};
   const types = ['stock_in', 'return', 'damage', 'adjustment'];
   if (!product_id || !types.includes(transaction_type) || quantity === undefined) {
     return res.status(400).json({ error: `product_id, quantity and transaction_type (${types.join('|')}) are required` });
   }
-  const product = get('SELECT * FROM products WHERE id = ? AND is_active = 1', [Number(product_id)]);
+  const product = await get('SELECT * FROM products WHERE id = ? AND is_active = 1', [Number(product_id)]);
   if (!product) return res.status(404).json({ error: 'Product not found' });
 
   const qty = Number(quantity);
@@ -55,16 +56,16 @@ router.post('/adjust', requireRole('admin', 'manager'), (req, res) => {
   const after = before + delta;
   if (after < 0) return res.status(422).json({ error: 'Resulting stock cannot be negative' });
 
-  const result = tx(() => {
-    run(
+  const result = await tx(async (t) => {
+    await t.run(
       `INSERT INTO inventory_transactions
          (product_id, user_id, transaction_type, quantity_change, stock_before, stock_after, reference_type, notes)
        VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`,
       [product.id, req.user.sub, transaction_type, delta, before, after, notes || null]
     );
-    return get('SELECT * FROM products WHERE id = ?', [product.id]);
+    return t.get('SELECT * FROM products WHERE id = ?', [product.id]);
   });
   res.status(201).json(result);
-});
+}));
 
 module.exports = router;

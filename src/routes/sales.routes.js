@@ -1,8 +1,10 @@
 'use strict';
 
 const express = require('express');
-const { query, get, run, tx } = require('../db');
+const { query, get, tx } = require('../db');
 const { authRequired } = require('../auth');
+const ah = require('../asyncHandler');
+const sync = require('../services/sync');
 
 const router = express.Router();
 router.use(authRequired);
@@ -20,7 +22,7 @@ function receiptNumber() {
 function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
 // GET /api/sales  - list with filters
-router.get('/', (req, res) => {
+router.get('/', ah(async (req, res) => {
   const { from, to, user_id, limit } = req.query;
   const where = [];
   const params = [];
@@ -34,21 +36,21 @@ router.get('/', (req, res) => {
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY s.id DESC LIMIT ?`;
   params.push(Math.min(Number(limit) || 50, 200));
-  res.json(query(sql, params));
-});
+  res.json(await query(sql, params));
+}));
 
 // GET /api/sales/:id  - full receipt
-router.get('/:id', (req, res) => {
+router.get('/:id', ah(async (req, res) => {
   const id = Number(req.params.id);
-  const sale = get(
+  const sale = await get(
     `SELECT s.*, u.name AS cashier_name FROM sales s JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
     [id]
   );
   if (!sale) return res.status(404).json({ error: 'Sale not found' });
-  sale.items = query('SELECT * FROM sale_items WHERE sale_id = ? ORDER BY id', [id]);
-  sale.payments = query('SELECT * FROM payments WHERE sale_id = ? ORDER BY id', [id]);
+  sale.items = await query('SELECT * FROM sale_items WHERE sale_id = ? ORDER BY id', [id]);
+  sale.payments = await query('SELECT * FROM payments WHERE sale_id = ? ORDER BY id', [id]);
   res.json(sale);
-});
+}));
 
 /**
  * POST /api/sales  - create a completed sale (checkout)
@@ -58,16 +60,16 @@ router.get('/:id', (req, res) => {
  *   payments: [{ payment_method, amount, amount_received?, transaction_reference?, mpesa_phone? }]
  * }
  */
-router.post('/', (req, res) => {
+router.post('/', ah(async (req, res) => {
   const b = req.body || {};
   if (!Array.isArray(b.items) || b.items.length === 0) {
     return res.status(400).json({ error: 'At least one line item is required' });
   }
 
-  const settings = get('SELECT * FROM business_settings WHERE id = 1') || { tax_enabled: 0, tax_rate: 0 };
+  const settings = (await get('SELECT * FROM business_settings WHERE id = 1')) || { tax_enabled: 0, tax_rate: 0 };
 
   try {
-    const out = tx(() => {
+    const out = await tx(async (t) => {
       let subtotal = 0;
       const lines = [];
 
@@ -76,7 +78,7 @@ router.post('/', (req, res) => {
         const qty = Number(raw.quantity);
         if (!pid || !(qty > 0)) throw httpError(400, 'Each item needs product_id and quantity > 0');
 
-        const product = get('SELECT * FROM products WHERE id = ? AND is_active = 1', [pid]);
+        const product = await t.get('SELECT * FROM products WHERE id = ? AND is_active = 1', [pid]);
         if (!product) throw httpError(404, `Product ${pid} not found`);
         if (product.stock_quantity < qty) {
           throw httpError(422, `Insufficient stock for ${product.name} (have ${product.stock_quantity}, need ${qty})`);
@@ -107,7 +109,7 @@ router.post('/', (req, res) => {
       else if (amountPaid > 0) paymentStatus = 'partial';
 
       const receipt = receiptNumber();
-      const saleInfo = run(
+      const saleInfo = await t.run(
         `INSERT INTO sales
            (receipt_number, user_id, customer_name, subtotal, discount, tax,
             total_amount, amount_paid, change_due, payment_status, sale_status, note)
@@ -118,7 +120,7 @@ router.post('/', (req, res) => {
       const saleId = saleInfo.lastInsertRowid;
 
       for (const { product, qty, lineDiscount, lineTotal } of lines) {
-        run(
+        await t.run(
           `INSERT INTO sale_items
              (sale_id, product_id, product_name, product_size, unit_price, unit_cost, quantity, discount, line_total)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -127,7 +129,7 @@ router.post('/', (req, res) => {
         );
         const before = product.stock_quantity;
         const after = round2(before - qty);
-        run(
+        await t.run(
           `INSERT INTO inventory_transactions
              (product_id, user_id, transaction_type, quantity_change, stock_before, stock_after, reference_type, reference_id, notes)
            VALUES (?, ?, 'sale', ?, ?, ?, 'sale', ?, ?)`,
@@ -137,7 +139,7 @@ router.post('/', (req, res) => {
 
       for (const p of payments) {
         const amt = Number(p.amount) || 0;
-        run(
+        await t.run(
           `INSERT INTO payments
              (sale_id, payment_method, amount, amount_received, change_amount,
               transaction_reference, mpesa_phone, payment_status, paid_at)
@@ -149,7 +151,7 @@ router.post('/', (req, res) => {
         );
       }
 
-      run(
+      await t.run(
         `INSERT INTO audit_logs (user_id, action, table_name, record_id, new_value)
          VALUES (?, 'sale.create', 'sales', ?, ?)`,
         [req.user.sub, saleId, JSON.stringify({ receipt, total })]
@@ -158,16 +160,24 @@ router.post('/', (req, res) => {
       return saleId;
     });
 
-    const sale = get('SELECT * FROM sales WHERE id = ?', [out]);
-    sale.items = query('SELECT * FROM sale_items WHERE sale_id = ?', [out]);
-    sale.payments = query('SELECT * FROM payments WHERE sale_id = ?', [out]);
+    const sale = await get('SELECT * FROM sales WHERE id = ?', [out]);
+    sale.items = await query('SELECT * FROM sale_items WHERE sale_id = ?', [out]);
+    sale.payments = await query('SELECT * FROM payments WHERE sale_id = ?', [out]);
+
+    // Best-effort push to the remote sheet right after a sale - this is the
+    // main sync trigger on a serverless deploy, where a background timer
+    // can't run between requests. Awaited (not fire-and-forget) because a
+    // serverless function can be frozen the instant the response is sent.
+    // No-op / instant if sync isn't configured; never blocks the sale itself.
+    try { await sync.runSync(); } catch { /* offline - next sale or "Sync now" retries */ }
+
     res.status(201).json(sale);
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Failed to record sale' });
   }
-});
+}));
 
 function httpError(status, message) {
   const e = new Error(message);

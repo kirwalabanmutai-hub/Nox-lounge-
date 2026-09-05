@@ -4,6 +4,7 @@ const express = require('express');
 const { get, run } = require('../db');
 const { authRequired } = require('../auth');
 const mpesa = require('../services/mpesa');
+const ah = require('../asyncHandler');
 
 const router = express.Router();
 
@@ -13,13 +14,13 @@ router.get('/config', authRequired, (req, res) => {
 });
 
 // POST /api/mpesa/stkpush  - send a payment prompt to the customer's phone
-router.post('/stkpush', authRequired, async (req, res) => {
+router.post('/stkpush', authRequired, ah(async (req, res) => {
   const { phone, amount, account_reference } = req.body || {};
   try {
     const result = await mpesa.stkPush({
       phone, amount, accountReference: account_reference || 'Nox Lounge', description: 'POS sale',
     });
-    run(
+    await run(
       `INSERT INTO mpesa_requests
          (checkout_request_id, merchant_request_id, phone, amount, account_reference, status, user_id)
        VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
@@ -30,12 +31,12 @@ router.post('/stkpush', authRequired, async (req, res) => {
   } catch (err) {
     res.status(err.status || 502).json({ error: err.message });
   }
-});
+}));
 
 // GET /api/mpesa/status/:checkoutRequestId  - poll for the outcome
-router.get('/status/:checkoutRequestId', authRequired, async (req, res) => {
+router.get('/status/:checkoutRequestId', authRequired, ah(async (req, res) => {
   const id = req.params.checkoutRequestId;
-  let record = get('SELECT * FROM mpesa_requests WHERE checkout_request_id = ?', [id]);
+  let record = await get('SELECT * FROM mpesa_requests WHERE checkout_request_id = ?', [id]);
   if (!record) return res.status(404).json({ error: 'Unknown STK push request' });
 
   // Give the customer up to 2 minutes; after that treat it as timed out.
@@ -45,37 +46,37 @@ router.get('/status/:checkoutRequestId', authRequired, async (req, res) => {
     try {
       const outcome = await mpesa.stkQuery(id);
       if (!outcome.pending) {
-        applyOutcome(record, outcome.resultCode, outcome.resultDesc);
-        record = get('SELECT * FROM mpesa_requests WHERE checkout_request_id = ?', [id]);
+        await applyOutcome(record, outcome.resultCode, outcome.resultDesc);
+        record = await get('SELECT * FROM mpesa_requests WHERE checkout_request_id = ?', [id]);
       } else if (ageMs > 120000) {
-        run(`UPDATE mpesa_requests SET status='timeout', updated_at=datetime('now') WHERE checkout_request_id = ?`, [id]);
-        record = get('SELECT * FROM mpesa_requests WHERE checkout_request_id = ?', [id]);
+        await run(`UPDATE mpesa_requests SET status='timeout', updated_at=datetime('now') WHERE checkout_request_id = ?`, [id]);
+        record = await get('SELECT * FROM mpesa_requests WHERE checkout_request_id = ?', [id]);
       }
     } catch {
       // Query API hiccup - keep reporting 'pending', the next poll will retry.
     }
   }
   res.json(record);
-});
+}));
 
 // POST /api/mpesa/callback  - Safaricom calls this (no auth: it's not our user).
 // Only reachable if MPESA_CALLBACK_URL is a real public HTTPS URL; the /status
 // polling above is the primary path and works without one.
-router.post('/callback', express.json(), (req, res) => {
+router.post('/callback', express.json(), ah(async (req, res) => {
   try {
     const stk = req.body && req.body.Body && req.body.Body.stkCallback;
     if (stk && stk.CheckoutRequestID) {
-      const record = get('SELECT * FROM mpesa_requests WHERE checkout_request_id = ?', [stk.CheckoutRequestID]);
-      if (record) applyOutcome(record, stk.ResultCode, stk.ResultDesc, stk.CallbackMetadata);
+      const record = await get('SELECT * FROM mpesa_requests WHERE checkout_request_id = ?', [stk.CheckoutRequestID]);
+      if (record) await applyOutcome(record, stk.ResultCode, stk.ResultDesc, stk.CallbackMetadata);
     }
   } catch (err) {
     console.error('M-Pesa callback error:', err);
   }
   // Safaricom expects this exact acknowledgement shape.
   res.json({ ResultCode: 0, ResultDesc: 'Accepted' });
-});
+}));
 
-function applyOutcome(record, resultCode, resultDesc, callbackMetadata) {
+async function applyOutcome(record, resultCode, resultDesc, callbackMetadata) {
   let status = 'failed';
   if (resultCode === 0) status = 'success';
   else if (resultCode === 1032) status = 'cancelled';
@@ -88,7 +89,7 @@ function applyOutcome(record, resultCode, resultDesc, callbackMetadata) {
     if (found) receipt = found.Value;
   }
 
-  run(
+  await run(
     `UPDATE mpesa_requests
        SET status = ?, result_code = ?, result_desc = ?, mpesa_receipt = COALESCE(?, mpesa_receipt),
            updated_at = datetime('now')
