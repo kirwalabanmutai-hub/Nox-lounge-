@@ -12,7 +12,9 @@
     "dev": "node --watch src/server.js",
     "seed": "node src/seed.js --force",
     "reset": "node src/seed.js --reset",
-    "adduser": "node src/adduser.js"
+    "adduser": "node src/adduser.js",
+    "build:css": "tailwindcss -i ./tailwind-src.css -o ./public/css/tailwind.css --minify",
+    "watch:css": "tailwindcss -i ./tailwind-src.css -o ./public/css/tailwind.css --watch"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
@@ -23,5 +25,8 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "serverless-http": "^4.0.0"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.16"
   }
 }

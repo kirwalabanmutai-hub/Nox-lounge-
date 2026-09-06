@@ -45,7 +45,9 @@ Node.js **≥ 18**. Uses `@libsql/client` (SQLite-compatible) — a local file b
 ### Works offline / during a network outage
 The app has **no runtime dependency on the internet**:
 
-* Tailwind CSS is vendored at [public/vendor/tailwind.js](public/vendor/tailwind.js) (no CDN).
+* Tailwind CSS is precompiled to a static [public/css/tailwind.css](public/css/tailwind.css)
+  (13KB) — no CDN, and no runtime JIT engine re-scanning the DOM on every screen change.
+  Rebuild it after adding new classes with `npm run build:css`.
 * Fonts use the local system stack — no Google Fonts download.
 * The database, API and UI are all served from `localhost`.
 * `npm install` is the only step that needs the internet — once `node_modules/`
@@ -110,9 +112,11 @@ POS SYTEM/
 │       ├── settings.routes.js    GET/PUT /settings
 │       ├── mpesa.routes.js       STK push, status polling, Daraja callback
 │       └── sync.routes.js        GET /sync/status, POST /sync/run
-└── public/                       Front-end SPA (Tailwind CDN + vanilla JS)
+├── tailwind-src.css               Input for `npm run build:css` (3 lines: @tailwind directives)
+├── tailwind.config.js              Content paths + brand color for the Tailwind build
+└── public/                       Front-end SPA (precompiled Tailwind + vanilla JS)
     ├── index.html
-    ├── css/styles.css
+    ├── css/{tailwind.css (precompiled, git-committed), styles.css}
     └── js/{api.js, app.js}
 ```
 

@@ -4,13 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Liquor POS</title>
-  <!-- Tailwind is vendored locally so the app runs fully offline -->
-  <script src="/vendor/tailwind.js"></script>
-  <script>
-    tailwind.config = {
-      theme: { extend: { colors: { brand: { DEFAULT: '#7c3aed', dark: '#5b21b6' } } } }
-    };
-  </script>
+  <!-- Precompiled Tailwind (13KB) - see `npm run build:css`. Replaces the old
+       451KB runtime engine, which was recompiling styles on every screen
+       change (Sell/Products/etc. rewrite the DOM constantly) and made
+       navigation feel sluggish. Still fully offline - no CDN. -->
+  <link rel="stylesheet" href="/css/tailwind.css" />
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body class="bg-slate-100 text-slate-800">
