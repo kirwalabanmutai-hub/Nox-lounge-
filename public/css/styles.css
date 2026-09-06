@@ -29,6 +29,19 @@ table.data tr:hover td { background: #faf5ff; }
 .input { width:100%; border:1px solid #cbd5e1; border-radius:.5rem; padding:.5rem .7rem; font-size:.9rem; outline:none; }
 .input:focus { border-color:#7c3aed; box-shadow:0 0 0 3px rgba(124,58,237,.15); }
 
+/* Login screen: role tabs + sign-in/create-account switch */
+.role-tab {
+  padding:.5rem; border-radius:.4rem; font-size:.85rem; font-weight:600;
+  color:#64748b; background:transparent; transition:.15s;
+}
+.role-tab.active { background:#fff; color:#7c3aed; box-shadow:0 1px 3px rgba(15,23,42,.12); }
+.mode-tab {
+  font-size:.85rem; font-weight:600; color:#94a3b8; background:transparent;
+  padding-bottom:.3rem; border-bottom:2px solid transparent; transition:.15s;
+}
+.mode-tab.active { color:#7c3aed; border-color:#7c3aed; }
+.mode-tab:hover { color:#5b21b6; }
+
 .badge { display:inline-block; padding:.15rem .55rem; border-radius:999px; font-size:.7rem; font-weight:600; }
 .badge-green { background:#dcfce7; color:#166534; }
 .badge-amber { background:#fef3c7; color:#92400e; }

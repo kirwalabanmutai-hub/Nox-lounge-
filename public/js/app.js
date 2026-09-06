@@ -14,30 +14,72 @@ const NAV = [
 const content = () => document.getElementById('content');
 const cart = []; // { product, quantity }
 
+let authRole = 'admin';   // which tab is selected: 'admin' | 'cashier'
+let authMode = 'signin';  // 'signin' | 'register'
+
 /* ---------------------------------------------------------- boot */
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('login-form').addEventListener('submit', onLogin);
+  document.getElementById('login-form').addEventListener('submit', onAuthSubmit);
   document.getElementById('logout').addEventListener('click', () => { API.clearSession(); location.reload(); });
   window.addEventListener('hashchange', route);
+
+  document.querySelectorAll('#role-tabs .role-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      authRole = btn.dataset.role;
+      document.querySelectorAll('#role-tabs .role-tab').forEach((b) => b.classList.toggle('active', b === btn));
+      setLoginError('');
+    });
+  });
+  document.querySelectorAll('.mode-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      authMode = btn.dataset.mode;
+      document.querySelectorAll('.mode-tab').forEach((b) => b.classList.toggle('active', b === btn));
+      applyAuthMode();
+    });
+  });
 
   if (API.token && API.user) showApp();
   else showLogin();
 });
 
-async function onLogin(e) {
+function applyAuthMode() {
+  const form = document.getElementById('login-form');
+  const isRegister = authMode === 'register';
+  form.querySelector('[data-field="name"]').hidden = !isRegister;
+  form.querySelector('[data-field="confirm"]').hidden = !isRegister;
+  form.name.required = isRegister;
+  form.confirm.required = isRegister;
+  document.getElementById('login-submit').textContent = isRegister ? 'Create account' : 'Sign in';
+  setLoginError('');
+}
+
+function setLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg || '';
+  el.classList.toggle('hidden', !msg);
+}
+
+async function onAuthSubmit(e) {
   e.preventDefault();
   const f = e.target;
-  const errEl = document.getElementById('login-error');
-  errEl.classList.add('hidden');
+  setLoginError('');
   try {
-    const { token, user } = await API.post('/auth/login', {
-      username: f.username.value, password: f.password.value,
-    });
-    API.setSession(token, user);
-    showApp();
+    if (authMode === 'signin') {
+      const { token, user } = await API.post('/auth/login', {
+        username: f.username.value, password: f.password.value, expected_role: authRole,
+      });
+      API.setSession(token, user);
+      showApp();
+    } else {
+      if (f.password.value !== f.confirm.value) throw new Error('Passwords do not match');
+      const { token, user } = await API.post('/auth/register', {
+        name: f.name.value, username: f.username.value, password: f.password.value, role: authRole,
+      });
+      API.setSession(token, user);
+      showApp();
+    }
   } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove('hidden');
+    setLoginError(err.message);
   }
 }
 

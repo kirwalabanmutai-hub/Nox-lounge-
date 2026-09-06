@@ -17,28 +17,47 @@
 
   <!-- LOGIN -->
   <div id="login-view" class="min-h-screen flex items-center justify-center p-4">
-    <form id="login-form" class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-8 space-y-5">
-      <div class="text-center">
+    <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-8">
+      <div class="text-center mb-5">
         <div class="text-4xl">🍾</div>
-        <h1 class="text-2xl font-bold mt-2">Liquor POS</h1>
-        <p class="text-sm text-slate-500">Sign in to continue</p>
+        <h1 class="text-2xl font-bold mt-2">Nox Lounge POS</h1>
       </div>
-      <div>
-        <label class="text-sm font-medium">Username</label>
-        <input name="username" autocomplete="username" value="admin"
-          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-brand outline-none" />
+
+      <!-- who's logging in -->
+      <div id="role-tabs" class="grid grid-cols-2 gap-1 bg-slate-100 rounded-lg p-1 mb-4">
+        <button type="button" class="role-tab active" data-role="admin">👤 Admin</button>
+        <button type="button" class="role-tab" data-role="cashier">🧾 Cashier</button>
       </div>
-      <div>
-        <label class="text-sm font-medium">Password</label>
-        <input name="password" type="password" autocomplete="current-password" value="admin123"
-          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-brand outline-none" />
+
+      <!-- sign in vs. create account -->
+      <div class="flex justify-center gap-5 mb-5">
+        <button type="button" class="mode-tab active" data-mode="signin">Sign in</button>
+        <button type="button" class="mode-tab" data-mode="register">Create account</button>
       </div>
-      <p id="login-error" class="text-sm text-red-600 hidden"></p>
-      <button class="w-full bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2.5 transition">
-        Sign in
-      </button>
-      <p class="text-xs text-center text-slate-400">admin / admin123 &nbsp;·&nbsp; cashier / cashier123</p>
-    </form>
+
+      <form id="login-form" class="space-y-4">
+        <div data-field="name" hidden>
+          <label class="text-sm font-medium">Full name</label>
+          <input name="name" autocomplete="name" class="input mt-1" />
+        </div>
+        <div>
+          <label class="text-sm font-medium">Username</label>
+          <input name="username" autocomplete="username" class="input mt-1" required />
+        </div>
+        <div>
+          <label class="text-sm font-medium">Password</label>
+          <input name="password" type="password" autocomplete="current-password" class="input mt-1" required />
+        </div>
+        <div data-field="confirm" hidden>
+          <label class="text-sm font-medium">Confirm password</label>
+          <input name="confirm" type="password" autocomplete="new-password" class="input mt-1" />
+        </div>
+        <p id="login-error" class="text-sm text-red-600 hidden"></p>
+        <button id="login-submit" class="w-full bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2.5 transition">
+          Sign in
+        </button>
+      </form>
+    </div>
   </div>
 
   <!-- APP SHELL -->
