@@ -1,67 +1,85 @@
-# Deploying the cloud demo (Vercel)
+# Deploying the cloud demo
 
-This gives you a real `https://your-project.vercel.app` link you can send the owner
-to try out in a browser, before anything is installed on the shop PC. It's a separate,
-optional deployment — the till itself still runs locally per [INSTALL.md](INSTALL.md)
-and doesn't need any of this.
+This gives you a public `https://…` link to send the owner for review, before
+anything is installed on the shop PC. It's optional and separate — the real till
+still runs locally per [INSTALL.md](INSTALL.md).
 
-**Why extra steps are needed:** Vercel has no persistent disk, so the local SQLite
-file the till PC uses can't work there. The app already supports swapping in a real
-hosted database for exactly this case — you just need to create one and tell Vercel
-about it.
+**Why there are extra steps:** a host like Netlify or Vercel has no persistent disk,
+so the local SQLite file the till uses can't live there. The app already supports
+pointing at a hosted database instead — you just create one (free) and set three
+environment variables.
 
-## 1. Create a free cloud database (Turso)
+The repo is wired for **both Netlify and Vercel**. Pick one.
 
-1. Go to **<https://turso.tech>** → sign up (GitHub login is fine, no card needed for
-   the free tier).
-2. Create a database (from their dashboard, name it e.g. `nox-lounge`).
-3. Get two values from it:
-   - **Database URL** — looks like `libsql://nox-lounge-yourname.turso.io`
-   - **Auth token** — create one for the database (dashboard → *Tokens* / *Create Token*)
+---
 
-*(If you prefer the CLI: `turso db create nox-lounge`, then
-`turso db show nox-lounge --url` and `turso db tokens create nox-lounge`.)*
+## Step 1 — Create a free cloud database (Turso) — *needed either way*
 
-## 2. Add environment variables in Vercel
+1. Go to **<https://turso.tech>** → sign up (GitHub login, no card for the free tier).
+2. Create a database (dashboard → *Create Database*, name it e.g. `nox-lounge`).
+3. Copy two values:
+   - **Database URL** — `libsql://nox-lounge-<you>.turso.io`
+   - **Auth token** — dashboard → *Create Token* for that database
 
-Open your Vercel project (the one already connected to this GitHub repo) →
-**Settings → Environment Variables** → add:
+*(CLI alternative: `turso db create nox-lounge`, then `turso db show nox-lounge --url`
+and `turso db tokens create nox-lounge`.)*
 
-| Name | Value |
-|---|---|
-| `TURSO_DATABASE_URL` | the `libsql://...` URL from step 1 |
-| `TURSO_AUTH_TOKEN` | the token from step 1 |
-| `JWT_SECRET` | any long random string (e.g. generate one: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`) |
+You'll also need a **JWT secret** — any long random string. Generate one:
+```
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
 
-Optional, only if you also want these live on the cloud copy:
-`MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET`, `MPESA_SHORTCODE`, `MPESA_PASSKEY`,
-`SYNC_WEBHOOK_URL`, `SYNC_WEBHOOK_TOKEN` (same meaning as in `.env` — see INSTALL.md).
+---
 
-Apply them to **Production** (and Preview if you want branch previews to work too).
+## Step 2A — Deploy on Netlify
 
-## 3. Redeploy
+1. **app.netlify.com → Add new site → Import from Git** → pick the
+   `kirwalabanmutai-hub/Nox-lounge-` repo.
+2. Netlify reads `netlify.toml` automatically — leave the build settings as detected
+   (publish dir `public`, functions dir `netlify/functions`). Deploy.
+3. **Site configuration → Environment variables → Add a variable** (three of them):
 
-Vercel → **Deployments** → **Redeploy** on the latest one (or just push any commit —
-it redeploys automatically). The first request after that will find an empty database
-and **seed itself automatically** (same demo data as local: admin/admin123,
-cashier/cashier123, sample products) — nothing extra to run by hand.
+   | Key | Value |
+   |---|---|
+   | `TURSO_DATABASE_URL` | the `libsql://…` URL from Step 1 |
+   | `TURSO_AUTH_TOKEN` | the token from Step 1 |
+   | `JWT_SECRET` | your random string |
 
-## 4. Check it and share the link
+   *(Optional, only if you want them live on the demo too: `MPESA_CONSUMER_KEY`,
+   `MPESA_CONSUMER_SECRET`, `MPESA_SHORTCODE`, `MPESA_PASSKEY`, `SYNC_WEBHOOK_URL`,
+   `SYNC_WEBHOOK_TOKEN` — see INSTALL.md.)*
+4. **Deploys → Trigger deploy → Deploy site** (so it picks up the new env vars).
+5. Open the site URL. The first request finds an empty database and **seeds itself
+   automatically** (admin/admin123, cashier/cashier123, sample products). Done.
 
-Open your `https://xxxxx.vercel.app` URL, log in with `admin` / `admin123` — it should
-work exactly like the local app (dashboard, Sell screen, products, etc.). That URL is
-what you send the owner to review.
+If the site 404s on login: the env vars weren't set, or the deploy that ran was
+before you added them — trigger one more deploy.
 
-**What won't work the same on the cloud copy** (all still fine on the local till):
-receipt printing still uses whatever printer is on the reviewer's own PC (that part is
-browser-side, so it's fine); barcode scanning also still works the same way. What's
-genuinely different is that the cloud copy **needs internet to work at all** — that's
-the opposite of the offline till, so don't run the actual shop off this link, only use
-it for remote review/demo. If you want the owner to see live sales from the real
-till, that's what the M-Pesa/Google-Sheet **cloud sync** feature is for instead (see
-INSTALL.md → *Remote reporting*) — the till stays offline-first and just reports out.
+---
 
-## Rolling back / going local-only again
+## Step 2B — Deploy on Vercel (alternative)
 
-Local development is unaffected by any of this — with `TURSO_DATABASE_URL` unset in
-`.env`, `npm start` on the till PC always uses the local SQLite file, never Turso.
+1. **vercel.com → Add New → Project** → import the same repo. It reads `vercel.json`.
+2. **Settings → Environment Variables** → add the same three
+   (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`) to **Production**.
+3. **Deployments → Redeploy**.
+4. Open the `*.vercel.app` URL — same self-seeding behaviour as above.
+
+---
+
+## Step 3 — Check it, then share
+
+Open the URL, log in `admin` / `admin123`. Dashboard, Sell, Products should all work.
+That URL is what you send the owner.
+
+**Don't run the actual shop off this link.** The cloud copy needs internet to do
+anything — the opposite of the offline till. It's for demo/review only. For the owner
+to watch real sales from the real till, use the offline-first **cloud sync** feature
+instead (INSTALL.md → *Remote reporting*).
+
+---
+
+## Local development is unaffected
+
+With `TURSO_DATABASE_URL` unset in `.env`, `npm start` on the till PC always uses the
+local SQLite file and never touches Turso or the internet.

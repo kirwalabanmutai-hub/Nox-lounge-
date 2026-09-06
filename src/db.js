@@ -12,13 +12,19 @@
  * Same schema, same SQL dialect (libSQL is a SQLite-compatible engine), same
  * query API either way - every call site just needs `await`.
  */
-const { createClient } = require('@libsql/client');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCHEMA_FILE = path.resolve(ROOT, 'database/schema.sqlite.sql');
 const isRemote = Boolean(process.env.TURSO_DATABASE_URL);
+
+// Remote (Turso) -> the pure-HTTP "web" client: no native binary, so it
+// bundles cleanly into a serverless function. Local -> the default client,
+// which can open a "file:" URL.
+const { createClient } = isRemote
+  ? require('@libsql/client/web')
+  : require('@libsql/client');
 
 let url;
 if (isRemote) {

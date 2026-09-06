@@ -25,7 +25,7 @@ Then open **http://localhost:4000**.
 > **receipt printer**)? See **[INSTALL.md](INSTALL.md)**.
 >
 > Want a shareable cloud link to demo/review before installing anything? See
-> **[DEPLOY.md](DEPLOY.md)** (Vercel + a free Turso database).
+> **[DEPLOY.md](DEPLOY.md)** (Netlify or Vercel + a free Turso database).
 
 On first run the database file `database/pos.db` is created, the schema is applied and
 demo data (users, categories, 8 products, opening stock) is seeded automatically.
@@ -85,9 +85,12 @@ Every sale writes a `sale` ledger row and a DB trigger keeps `products.stock_qua
 ```
 POS SYTEM/
 ├── mysql.sql                     Reference production schema (MySQL 8 / MariaDB) + views + trigger
-├── vercel.json                   Routes every request to api/index.js (cloud deploy only)
+├── vercel.json                   Vercel: routes every request to api/index.js
 ├── api/
 │   └── index.js                  Vercel serverless entrypoint (wraps src/app.js)
+├── netlify.toml                  Netlify: static ./public + /api/* -> the function
+├── netlify/functions/
+│   └── api.js                    Netlify function entrypoint (wraps src/app.js via serverless-http)
 ├── database/
 │   ├── schema.sqlite.sql         Runtime schema (mirrors mysql.sql)
 │   └── pos.db                    Created on first run (git-ignored, local mode only)
