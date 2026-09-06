@@ -64,7 +64,13 @@ function ensureReady() {
         console.log('Empty database detected - seeding demo data...');
         await seed();
       }
-    })();
+    })().catch((err) => {
+      // Don't cache a rejected promise - a fixed env var / transient network
+      // blip should let the very next request succeed without a redeploy.
+      readyPromise = null;
+      console.error('Database init failed:', err && err.message ? err.message : err);
+      throw err;
+    });
   }
   return readyPromise;
 }

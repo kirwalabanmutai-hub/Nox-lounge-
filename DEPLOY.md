@@ -52,8 +52,16 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 5. Open the site URL. The first request finds an empty database and **seeds itself
    automatically** (admin/admin123, cashier/cashier123, sample products). Done.
 
-If the site 404s on login: the env vars weren't set, or the deploy that ran was
-before you added them — trigger one more deploy.
+**Troubleshooting**
+- **502 on login** = the function ran but crashed. Almost always the three env
+  vars aren't set (or the deploy ran before you added them). Set them, then
+  **Deploys → Trigger deploy**. Confirm the exact error under **Logs → Functions →
+  `api`** — with the vars missing it logs *"TURSO_DATABASE_URL … must be set on a
+  serverless deploy"*.
+- **404 on login** = the redirect isn't applying; make sure `netlify.toml` is at the
+  repo root (it is) and the site's base directory is the repo root.
+- Turso URL must start with `libsql://` (not `https://`), and the auth token is the
+  long one from *Create Token*, not the database name.
 
 ---
 

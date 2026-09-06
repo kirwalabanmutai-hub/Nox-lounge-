@@ -1,22 +1,15 @@
 # Netlify deployment config.
 #   - static frontend  -> served straight from ./public by Netlify's CDN
-#   - /api/*           -> the Express app, running as a single function
+#   - /api/*           -> the Express app, running as one function
 #
-# Still needs a cloud database: set TURSO_DATABASE_URL, TURSO_AUTH_TOKEN and
-# JWT_SECRET under Site configuration -> Environment variables. See DEPLOY.md.
+# REQUIRED: set TURSO_DATABASE_URL, TURSO_AUTH_TOKEN and JWT_SECRET under
+# Site configuration -> Environment variables (the function crashes with 502
+# without them). See DEPLOY.md.
 
 [build]
   publish = "public"
   functions = "netlify/functions"
-  # no build step - the frontend is plain files, functions are bundled automatically
-  command = "node -e \"process.stdout.write('no build step\\n')\""
-
-[functions]
-  # keep @libsql/client out of the bundler; the /web subpath we use at
-  # runtime is pure JS, but this avoids the bundler tripping on its optional
-  # native package.
-  external_node_modules = ["@libsql/client"]
-  node_bundler = "esbuild"
+  command = "echo 'no build step'"
 
 [[redirects]]
   from = "/api/*"

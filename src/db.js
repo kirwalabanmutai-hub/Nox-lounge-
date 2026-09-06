@@ -5,12 +5,11 @@
  *
  *   - No TURSO_DATABASE_URL set  -> a local SQLite file (till PC / npm start).
  *     Fully offline: no network involved at all.
- *   - TURSO_DATABASE_URL set     -> a remote Turso (libSQL) database, reached
- *     over HTTPS. This is what a Vercel/cloud deployment uses, since a
- *     serverless function has no persistent local disk.
+ *   - TURSO_DATABASE_URL set     -> a remote Turso (libSQL) database over HTTPS.
+ *     This is what a serverless deploy (Netlify / Vercel) uses, since a
+ *     function has no persistent local disk.
  *
- * Same schema, same SQL dialect (libSQL is a SQLite-compatible engine), same
- * query API either way - every call site just needs `await`.
+ * Same schema, same SQL dialect, same query API either way - callers `await`.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,10 +17,19 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '..');
 const SCHEMA_FILE = path.resolve(ROOT, 'database/schema.sqlite.sql');
 const isRemote = Boolean(process.env.TURSO_DATABASE_URL);
+const isServerless = Boolean(
+  process.env.NETLIFY || process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT
+);
 
-// Remote (Turso) -> the pure-HTTP "web" client: no native binary, so it
-// bundles cleanly into a serverless function. Local -> the default client,
-// which can open a "file:" URL.
+if (isServerless && !isRemote) {
+  throw new Error(
+    'TURSO_DATABASE_URL (and TURSO_AUTH_TOKEN) must be set on a serverless deploy - ' +
+    'a function has no writable disk for a local database file. See DEPLOY.md.'
+  );
+}
+
+// Remote -> the pure-HTTP "web" client: no native binary, bundles cleanly
+// into a function. Local -> the default client, which can open a "file:" URL.
 const { createClient } = isRemote
   ? require('@libsql/client/web')
   : require('@libsql/client');
@@ -48,10 +56,34 @@ function unwrapRow(row) {
   return out;
 }
 
-/** Apply schema (idempotent - uses IF NOT EXISTS everywhere). */
+/**
+ * Split a schema file into individual statements, keeping `CREATE TRIGGER ...
+ * BEGIN ... END;` blocks whole (a naive ";" split would cut the trigger body).
+ */
+function splitStatements(sql) {
+  const lines = sql.replace(/^\s*--.*$/gm, '').split('\n');
+  const out = [];
+  let buf = '';
+  let inTrigger = false;
+  for (const line of lines) {
+    if (!line.trim() && !buf.trim()) continue;
+    buf += line + '\n';
+    if (/create\s+trigger/i.test(line)) inTrigger = true;
+    if (inTrigger) {
+      if (/^\s*end\s*;\s*$/i.test(line)) { out.push(buf.trim()); buf = ''; inTrigger = false; }
+    } else if (line.trim().endsWith(';')) {
+      out.push(buf.trim());
+      buf = '';
+    }
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out.filter((s) => s && !/^;+$/.test(s) && !/^pragma\s/i.test(s));
+}
+
+/** Apply schema. Idempotent (IF NOT EXISTS everywhere). One round trip on remote. */
 async function migrate() {
   const sql = fs.readFileSync(SCHEMA_FILE, 'utf8');
-  await client.executeMultiple(sql);
+  await client.batch(splitStatements(sql), 'write');
 }
 
 /** True when the core tables have no rows yet. */
@@ -74,6 +106,11 @@ async function get(sql, params) {
 async function run(sql, params) {
   const r = await client.execute({ sql, args: asArgs(params) });
   return { changes: unwrap(r.rowsAffected), lastInsertRowid: unwrap(r.lastInsertRowid) };
+}
+
+/** Run an array of {sql, args} writes atomically in a single round trip. */
+async function batch(statements) {
+  await client.batch(statements.map((s) => (typeof s === 'string' ? s : { sql: s.sql, args: asArgs(s.args) })), 'write');
 }
 
 /**
@@ -104,4 +141,4 @@ async function tx(fn) {
   }
 }
 
-module.exports = { client, migrate, isEmpty, query, get, run, tx, isRemote };
+module.exports = { client, migrate, isEmpty, query, get, run, batch, tx, isRemote, isServerless };
