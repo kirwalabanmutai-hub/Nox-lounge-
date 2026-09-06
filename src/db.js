@@ -21,29 +21,36 @@ const isServerless = Boolean(
   process.env.NETLIFY || process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT
 );
 
-if (isServerless && !isRemote) {
-  throw new Error(
-    'TURSO_DATABASE_URL (and TURSO_AUTH_TOKEN) must be set on a serverless deploy - ' +
-    'a function has no writable disk for a local database file. See DEPLOY.md.'
-  );
-}
+// Misconfiguration: serverless with no cloud DB. Don't throw at import time
+// (that would fail the whole function module before anything can report why) -
+// stand up a stub whose first use throws a readable message that the request
+// wrappers turn into a 503 JSON response.
+const MISCONFIGURED = isServerless && !isRemote;
+const CONFIG_HINT =
+  'TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must be set on this deploy ' +
+  '(a serverless function has no writable disk for a local database). See DEPLOY.md.';
 
-// Remote -> the pure-HTTP "web" client: no native binary, bundles cleanly
-// into a function. Local -> the default client, which can open a "file:" URL.
-const { createClient } = isRemote
-  ? require('@libsql/client/web')
-  : require('@libsql/client');
-
-let url;
-if (isRemote) {
-  url = process.env.TURSO_DATABASE_URL;
+let client;
+if (MISCONFIGURED) {
+  const boom = () => { throw new Error(CONFIG_HINT); };
+  client = { execute: boom, executeMultiple: boom, batch: boom, transaction: boom, close() {} };
 } else {
-  const dbFile = path.resolve(ROOT, process.env.DB_FILE || './database/pos.db');
-  fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-  url = `file:${dbFile.replace(/\\/g, '/')}`;
-}
+  // Remote -> the pure-HTTP "web" client: no native binary, bundles cleanly
+  // into a function. Local -> the default client, which can open a "file:" URL.
+  const { createClient } = isRemote
+    ? require('@libsql/client/web')
+    : require('@libsql/client');
 
-const client = createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN || undefined });
+  let url;
+  if (isRemote) {
+    url = process.env.TURSO_DATABASE_URL;
+  } else {
+    const dbFile = path.resolve(ROOT, process.env.DB_FILE || './database/pos.db');
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    url = `file:${dbFile.replace(/\\/g, '/')}`;
+  }
+  client = createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN || undefined });
+}
 
 /** libSQL returns some numeric fields (lastInsertRowid, COUNT(*)...) as BigInt. Normalize to Number. */
 function unwrap(v) {

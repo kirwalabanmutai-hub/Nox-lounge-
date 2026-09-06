@@ -1,13 +1,28 @@
 'use strict';
 
 /**
- * Vercel serverless entrypoint. vercel.json rewrites every request here, so
- * this one function serves both the API and the static frontend, exactly
- * like src/server.js does locally - just without a persistent process.
+ * Vercel serverless entrypoint. vercel.json rewrites every request here.
+ * Wrapped so any load/config/DB failure returns readable JSON, not a bare 502.
  */
-const { app, ensureReady } = require('../src/app');
+let app, ensureReady, loadError;
+try {
+  ({ app, ensureReady } = require('../src/app'));
+} catch (err) {
+  loadError = err;
+}
+
+function fail(res, status, message) {
+  res.statusCode = status;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify({ error: message }));
+}
 
 module.exports = async (req, res) => {
-  await ensureReady();
+  if (loadError) return fail(res, 500, `Function failed to load: ${loadError.message || loadError}`);
+  try {
+    await ensureReady();
+  } catch (err) {
+    return fail(res, 503, `Server not ready: ${err && err.message ? err.message : err}`);
+  }
   return app(req, res);
 };
