@@ -2,14 +2,18 @@
    Liquor POS - front-end SPA (vanilla JS, hash routing)
    ============================================================ */
 
+// `roles` restricts a tab to specific roles; omit it to show to everyone.
+// Cashiers only need the till + what's on the shelf - dashboards, product
+// editing, full sales history and settings are admin/manager territory.
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+  { id: 'dashboard', label: 'Dashboard', icon: '📊', roles: ['admin', 'manager'] },
   { id: 'sell', label: 'Sell', icon: '🛒' },
-  { id: 'products', label: 'Products', icon: '📦' },
+  { id: 'products', label: 'Products', icon: '📦', roles: ['admin', 'manager'] },
   { id: 'inventory', label: 'Inventory', icon: '🔄' },
-  { id: 'sales', label: 'Sales', icon: '🧾' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' },
+  { id: 'sales', label: 'Sales', icon: '🧾', roles: ['admin', 'manager'] },
+  { id: 'settings', label: 'Settings', icon: '⚙️', roles: ['admin', 'manager'] },
 ];
+const navFor = (role) => NAV.filter((n) => !n.roles || n.roles.includes(role));
 
 const content = () => document.getElementById('content');
 const cart = []; // { product, quantity }
@@ -94,22 +98,26 @@ async function showApp() {
   document.getElementById('who').textContent = API.user.name;
   document.getElementById('who-role').textContent = API.user.role;
 
+  const allowed = navFor(API.user.role);
   const nav = document.getElementById('nav');
-  nav.innerHTML = NAV.map((n) =>
+  nav.innerHTML = allowed.map((n) =>
     `<a class="nav-link" href="#${n.id}"><span>${n.icon}</span><span class="hidden md:inline">${n.label}</span></a>`
   ).join('');
 
   try { const s = await API.get('/settings'); if (s && s.currency) CURRENCY = s.currency; } catch { /* ignore */ }
 
-  if (!location.hash) location.hash = '#dashboard';
+  const home = allowed[0] ? allowed[0].id : 'sell';
+  if (!location.hash) location.hash = `#${home}`;
   route();
 }
 
 function route() {
-  const id = (location.hash.replace('#', '') || 'dashboard').split('?')[0];
+  let id = (location.hash.replace('#', '') || 'dashboard').split('?')[0];
+  const allowed = navFor(API.user.role).map((n) => n.id);
+  if (!allowed.includes(id)) id = allowed[0] || 'sell'; // e.g. a cashier typing #settings by hand
   document.querySelectorAll('.nav-link').forEach((a) =>
     a.classList.toggle('active', a.getAttribute('href') === `#${id}`));
-  const view = VIEWS[id] || VIEWS.dashboard;
+  const view = VIEWS[id] || VIEWS.sell;
   content().innerHTML = `<div class="text-slate-400 text-sm">Loading…</div>`;
   view().catch((err) => {
     content().innerHTML = `<div class="card p-6 text-red-600">${esc(err.message)}</div>`;
