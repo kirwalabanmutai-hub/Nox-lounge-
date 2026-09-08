@@ -17,6 +17,7 @@ const navFor = (role) => NAV.filter((n) => !n.roles || n.roles.includes(role));
 
 const content = () => document.getElementById('content');
 const cart = []; // { product, quantity }
+const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 let authRole = 'admin';   // which tab is selected: 'admin' | 'cashier'
 let authMode = 'signin';  // 'signin' | 'register'
@@ -378,91 +379,218 @@ VIEWS.sell = async () => {
   renderCart();
 };
 
+/**
+ * Checkout - one tender by default (cash, full amount, with a change line -
+ * same as before), or two tenders ("split payment") when the bill is being
+ * covered by more than one method, in either order (e.g. cash then card,
+ * or M-Pesa then cash for the rest).
+ */
 function openCheckout(settings, mpesaConfigured) {
   const sub = cart.reduce((s, l) => s + l.product.selling_price * l.quantity, 0);
   const disc = Math.min(Number(document.getElementById('c-disc').value) || 0, sub);
   const taxable = Math.max(sub - disc, 0);
   const tax = settings.tax_enabled ? taxable * (settings.tax_rate / 100) : 0;
-  const total = taxable + tax;
+  const total = round2(taxable + tax);
+
+  const newTender = (amount) => ({
+    method: 'cash', amount: round2(amount), received: round2(amount), reference: '',
+    phone: '', mpesaState: 'idle', mpesaStatusText: '', checkoutRequestId: null, mpesaReceipt: null,
+  });
+  const tenders = [newTender(total)];
+  let customerName = '';
   let stkPoll = null;
-
-  modal(`
-    <h2 class="text-lg font-bold mb-1">Checkout</h2>
-    <p class="text-sm text-slate-500 mb-4">Amount due <span class="font-bold text-slate-800">${money(total)}</span></p>
-    <form id="pay-form" class="space-y-3">
-      <label class="block text-sm font-medium">Payment method
-        <select name="method" class="input mt-1">
-          <option value="cash">Cash</option><option value="mpesa">M-Pesa</option>
-          <option value="card">Card</option><option value="bank">Bank</option>
-        </select></label>
-
-      <div data-block="manual" class="space-y-3">
-        <label class="block text-sm font-medium">Amount received
-          <input name="received" type="number" min="0" step="0.01" value="${total.toFixed(2)}" class="input mt-1"></label>
-        <label class="block text-sm font-medium" data-ref hidden>Reference
-          <input name="reference" class="input mt-1"></label>
-      </div>
-
-      <div data-block="mpesa" hidden class="space-y-2">
-        ${mpesaConfigured ? `
-          <label class="block text-sm font-medium">Customer phone
-            <input name="phone" placeholder="07XXXXXXXX" class="input mt-1"></label>
-          <button type="button" id="send-stk" class="btn btn-primary w-full justify-center">
-            📲 Send prompt to customer's phone
-          </button>
-          <p id="stk-status" class="text-sm text-slate-500 min-h-[1.5em]"></p>
-        ` : `<p class="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">
-              M-Pesa phone prompts aren't set up on this till yet (see INSTALL.md).
-              Choose Cash, Card or Bank instead.</p>`}
-      </div>
-
-      <label class="block text-sm font-medium">Customer name (optional)
-        <input name="customer" class="input mt-1"></label>
-      <p id="change-line" class="text-sm text-slate-500"></p>
-      <div class="flex gap-2 justify-end pt-2">
-        <button type="button" class="btn btn-ghost" data-close>Cancel</button>
-        <button id="submit-btn" class="btn btn-primary">Complete sale</button>
-      </div>
-    </form>`);
-
-  const form = document.getElementById('pay-form');
-  const refWrap = form.querySelector('[data-ref]');
-  const manualBlock = form.querySelector('[data-block="manual"]');
-  const mpesaBlock = form.querySelector('[data-block="mpesa"]');
-  const submitBtn = document.getElementById('submit-btn');
-  const stkBtn = document.getElementById('send-stk');
-  const stkStatus = document.getElementById('stk-status');
-
   const stopPoll = () => { if (stkPoll) { clearInterval(stkPoll); stkPoll = null; } };
   const modalGone = () => !document.getElementById('modal');
 
-  const syncMethod = () => {
-    stopPoll();
-    const isMpesa = form.method.value === 'mpesa';
-    manualBlock.hidden = isMpesa;
-    mpesaBlock.hidden = !isMpesa;
-    refWrap.hidden = form.method.value === 'cash';
-    submitBtn.hidden = isMpesa;                 // M-Pesa completes itself once confirmed
-    if (isMpesa && stkStatus) stkStatus.textContent = '';
-    if (isMpesa && stkBtn) stkBtn.disabled = false;
-  };
-  form.method.addEventListener('change', syncMethod);
-  syncMethod();
+  // Only count an mpesa tender once Safaricom has actually confirmed it -
+  // an amount typed in but not yet sent/confirmed isn't real money yet.
+  const countsNow = (t) => t.method !== 'mpesa' || t.mpesaState === 'confirmed';
+  const covered = () => round2(tenders.filter(countsNow).reduce((s, t) => s + (Number(t.amount) || 0), 0));
+  const remaining = () => round2(Math.max(total - covered(), 0));
+  const cashChange = () => tenders.length === 1 && tenders[0].method === 'cash'
+    ? round2(Math.max((Number(tenders[0].received) || 0) - total, 0)) : 0;
+  // Every mpesa tender must be confirmed before completing the sale (never
+  // record a prompt that's still pending, failed, or never sent as "paid").
+  // Coverage itself is informational, not required - completing with less
+  // than the full total is allowed on purpose (matches how a single cash
+  // payment always worked: it can be recorded as a partial payment).
+  const canComplete = () => tenders.every((t) => t.method !== 'mpesa' || t.mpesaState === 'confirmed');
 
-  const updateChange = () => {
-    const rec = Number(form.received.value) || 0;
-    document.getElementById('change-line').textContent =
-      rec >= total ? `Change: ${money(rec - total)}` : `Balance: ${money(total - rec)}`;
-  };
-  form.received.addEventListener('input', updateChange);
-  updateChange();
+  function tenderFields(t, i) {
+    const label = tenders.length > 1 ? `Payment ${i + 1}` : 'Payment method';
+    return `
+      <div class="border border-slate-200 rounded-lg p-3 space-y-2" data-tender="${i}">
+        <div class="flex items-center justify-between">
+          <label class="text-sm font-medium flex-1">${label}
+            <select data-f="method" class="input mt-1">
+              ${['cash', 'mpesa', 'card', 'bank'].map((m) => `<option value="${m}" ${t.method === m ? 'selected' : ''}>${paymentLabel(m)}</option>`).join('')}
+            </select>
+          </label>
+          ${i > 0 ? `<button type="button" class="text-red-400 hover:text-red-600 ml-2 mt-5" data-remove-tender="${i}" title="Remove this payment">✕</button>` : ''}
+        </div>
 
-  async function finalizeSale(payment) {
+        ${t.method === 'mpesa' ? (mpesaConfigured ? `
+          <label class="block text-sm font-medium">Amount<input type="number" min="0" step="0.01" data-f="amount" value="${t.amount}" class="input mt-1" ${t.mpesaState === 'pending' || t.mpesaState === 'confirmed' ? 'disabled' : ''}></label>
+          <label class="block text-sm font-medium">Customer phone
+            <input data-f="phone" placeholder="07XXXXXXXX" value="${esc(t.phone)}" class="input mt-1" ${t.mpesaState === 'pending' || t.mpesaState === 'confirmed' ? 'disabled' : ''}></label>
+          <button type="button" class="btn btn-primary w-full justify-center" data-send-stk="${i}"
+            ${t.mpesaState === 'pending' || t.mpesaState === 'confirmed' ? 'disabled' : ''}>
+            📲 ${t.mpesaState === 'confirmed' ? 'Confirmed ✓' : 'Send prompt to customer\'s phone'}
+          </button>
+          <p class="text-sm min-h-[1.5em] ${t.mpesaState === 'confirmed' ? 'text-green-600' : t.mpesaState === 'failed' ? 'text-red-600' : 'text-slate-500'}">${esc(t.mpesaStatusText)}</p>
+        ` : `<p class="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">M-Pesa phone prompts aren't set up on this till yet (see INSTALL.md). Choose Cash, Card or Bank instead.</p>`)
+        : `
+          <label class="block text-sm font-medium">${tenders.length > 1 ? 'Amount' : 'Amount received'}
+            <input type="number" min="0" step="0.01" data-f="${tenders.length > 1 ? 'amount' : 'received'}"
+              value="${tenders.length > 1 ? t.amount : t.received}" class="input mt-1"></label>
+          ${t.method !== 'cash' ? `<label class="block text-sm font-medium">Reference (optional)
+            <input data-f="reference" value="${esc(t.reference)}" class="input mt-1"></label>` : ''}
+        `}
+      </div>`;
+  }
+
+  function render() {
+    modal(`
+      <h2 class="text-lg font-bold mb-1">Checkout</h2>
+      <p class="text-sm text-slate-500 mb-4">Amount due <span class="font-bold text-slate-800">${money(total)}</span></p>
+      <form id="pay-form" class="space-y-3">
+        <div id="tenders-box" class="space-y-3">${tenders.map(tenderFields).join('')}</div>
+
+        ${tenders.length < 2 ? `
+          <button type="button" id="add-split" class="text-sm text-brand hover:underline">
+            + Split payment (pay the rest another way)
+          </button>` : ''}
+
+        <label class="block text-sm font-medium">Customer name (optional)
+          <input name="customer" value="${esc(customerName)}" class="input mt-1"></label>
+        <p id="summary-line" class="text-sm font-medium"></p>
+        <div class="flex gap-2 justify-end pt-2">
+          <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+          <button type="submit" id="submit-btn" class="btn btn-primary">Complete sale</button>
+        </div>
+      </form>`);
+
+    const form = document.getElementById('pay-form');
+
+    tenders.forEach((t, i) => {
+      const row = form.querySelector(`[data-tender="${i}"]`);
+      row.querySelector('[data-f="method"]').addEventListener('change', (e) => {
+        t.method = e.target.value;
+        if (t.method === 'cash') { t.received = t.amount; }
+        render();
+      });
+      const amountEl = row.querySelector('[data-f="amount"], [data-f="received"]');
+      if (amountEl) amountEl.addEventListener('input', (e) => {
+        const v = Number(e.target.value) || 0;
+        if (e.target.dataset.f === 'received') { t.received = v; t.amount = Math.min(v, total); }
+        else t.amount = v;
+        updateSummary();
+      });
+      const refEl = row.querySelector('[data-f="reference"]');
+      if (refEl) refEl.addEventListener('input', (e) => { t.reference = e.target.value; });
+      const phoneEl = row.querySelector('[data-f="phone"]');
+      if (phoneEl) phoneEl.addEventListener('input', (e) => { t.phone = e.target.value; });
+      const removeBtn = row.querySelector(`[data-remove-tender="${i}"]`);
+      if (removeBtn) removeBtn.addEventListener('click', () => { stopPoll(); tenders.splice(i, 1); tenders[0].amount = total; tenders[0].received = total; render(); });
+      const stkBtn = row.querySelector(`[data-send-stk="${i}"]`);
+      if (stkBtn) stkBtn.addEventListener('click', () => sendStk(i));
+    });
+
+    const addSplit = document.getElementById('add-split');
+    if (addSplit) addSplit.addEventListener('click', () => {
+      tenders.push(newTender(remaining()));
+      render();
+    });
+
+    form.customer.addEventListener('input', (e) => { customerName = e.target.value; });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!canComplete()) return;
+      document.getElementById('submit-btn').disabled = true;
+      try { await finalizeSale(); }
+      catch (err) { toast(err.message, 'error'); document.getElementById('submit-btn').disabled = false; }
+    });
+
+    updateSummary();
+  }
+
+  function updateSummary() {
+    const line = document.getElementById('summary-line');
+    const btn = document.getElementById('submit-btn');
+    if (!line || !btn) return;
+    const change = cashChange();
+    const rem = remaining();
+    if (change > 0) {
+      line.className = 'text-sm font-medium text-slate-500';
+      line.textContent = `Change: ${money(change)}`;
+    } else if (rem > 0) {
+      line.className = 'text-sm font-medium text-amber-600';
+      line.textContent = `Remaining: ${money(rem)}`;
+    } else {
+      line.className = 'text-sm font-medium text-green-600';
+      line.textContent = 'Fully covered ✓';
+    }
+    btn.disabled = !canComplete();
+  }
+
+  async function sendStk(i) {
+    const t = tenders[i];
+    t.mpesaState = 'pending';
+    t.mpesaStatusText = 'Sending prompt…';
+    render();
+    try {
+      const req = await API.post('/mpesa/stkpush', { phone: t.phone, amount: t.amount });
+      t.checkoutRequestId = req.checkout_request_id;
+      t.mpesaStatusText = '📲 Ask the customer to check their phone and enter their M-Pesa PIN…';
+      render();
+
+      const startedAt = Date.now();
+      stkPoll = setInterval(async () => {
+        if (modalGone()) return stopPoll();
+        try {
+          const status = await API.get(`/mpesa/status/${req.checkout_request_id}`);
+          if (status.status === 'success') {
+            stopPoll();
+            t.mpesaState = 'confirmed';
+            t.mpesaReceipt = status.mpesa_receipt || req.checkout_request_id;
+            t.mpesaStatusText = `✅ Payment confirmed${status.mpesa_receipt ? ` (${status.mpesa_receipt})` : ''}`;
+            render();
+            if (canComplete()) await finalizeSale();
+          } else if (['failed', 'cancelled', 'timeout'].includes(status.status)) {
+            stopPoll();
+            t.mpesaState = 'failed';
+            t.mpesaStatusText = `❌ ${status.status === 'cancelled' ? 'Customer cancelled the prompt' : status.status === 'timeout' ? 'No response from the phone — try again' : (status.result_desc || 'Payment failed')}.`;
+            render();
+          } else if (Date.now() - startedAt > 125000) {
+            stopPoll();
+            t.mpesaState = 'failed';
+            t.mpesaStatusText = '⏱ No response yet — ask the customer to check their M-Pesa menu, or try again.';
+            render();
+          }
+        } catch { /* transient - next tick retries */ }
+      }, 3000);
+    } catch (err) {
+      t.mpesaState = 'failed';
+      t.mpesaStatusText = err.message;
+      render();
+    }
+  }
+
+  async function finalizeSale() {
+    const payments = tenders.map((t) => ({
+      payment_method: t.method,
+      amount: t.amount,
+      amount_received: t.method === 'cash' ? t.received : t.amount,
+      change_amount: t.method === 'cash' ? Math.max((t.received || 0) - t.amount, 0) : 0,
+      transaction_reference: t.method === 'mpesa' ? (t.mpesaReceipt || t.checkoutRequestId) : (t.reference || null),
+      mpesa_phone: t.method === 'mpesa' ? t.phone : undefined,
+    }));
     const payload = {
-      customer_name: form.customer.value || null,
+      customer_name: customerName || null,
       discount: disc,
       items: cart.map((l) => ({ product_id: l.product.id, quantity: l.quantity })),
-      payments: [payment],
+      payments,
     };
 
     let sale;
@@ -472,88 +600,22 @@ function openCheckout(settings, mpesaConfigured) {
     } catch (err) {
       if (!err.offline) throw err; // a real rejection (bad payment method, insufficient stock, etc.) - surface it
       // No connection: save locally now, sync automatically once it's back.
-      // Cash/card sales are fine to record this way (money is already in
-      // hand); M-Pesa's own flow only reaches here after Safaricom already
-      // confirmed the payment, so it's safe there too.
+      // Money's already in hand for cash/card by this point; M-Pesa tenders
+      // only reach here after Safaricom already confirmed the payment.
       const localId = OfflineStore.queueSale(payload);
       OfflineStore.applyLocalStock(payload.items);
-      sale = buildOfflineSale(localId, payload, payment);
+      sale = buildOfflineSale(localId, payload);
       toast('No connection — sale saved on this device, will sync automatically', 'error');
     }
 
+    stopPoll();
     closeModal();
     cart.length = 0;
     route();              // rebuild the Sell view with fresh stock + empty cart
     showReceipt(sale);
   }
 
-  // ---- Cash / Card / Bank: cashier confirms once money is in hand ----
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (form.method.value === 'mpesa') return; // handled by the STK flow below
-    submitBtn.disabled = true;
-    try {
-      const received = Number(form.received.value) || 0;
-      await finalizeSale({
-        payment_method: form.method.value,
-        amount: Math.min(received, total) || total,
-        amount_received: received,
-        change_amount: Math.max(received - total, 0),
-        transaction_reference: form.reference ? form.reference.value || null : null,
-      });
-    } catch (err) {
-      toast(err.message, 'error');
-      submitBtn.disabled = false;
-    }
-  });
-
-  // ---- M-Pesa: push a PIN prompt to the customer's phone, no code to type ----
-  if (stkBtn) {
-    stkBtn.addEventListener('click', async () => {
-      stkBtn.disabled = true;
-      stkStatus.className = 'text-sm text-slate-500 min-h-[1.5em]';
-      stkStatus.textContent = 'Sending prompt…';
-      try {
-        const req = await API.post('/mpesa/stkpush', { phone: form.phone.value, amount: total });
-        stkStatus.textContent = '📲 Ask the customer to check their phone and enter their M-Pesa PIN…';
-
-        const startedAt = Date.now();
-        stkPoll = setInterval(async () => {
-          if (modalGone()) return stopPoll();
-          try {
-            const status = await API.get(`/mpesa/status/${req.checkout_request_id}`);
-            if (status.status === 'success') {
-              stopPoll();
-              stkStatus.className = 'text-sm text-green-600 min-h-[1.5em]';
-              stkStatus.textContent = `✅ Payment confirmed${status.mpesa_receipt ? ` (${status.mpesa_receipt})` : ''} — saving sale…`;
-              await finalizeSale({
-                payment_method: 'mpesa',
-                amount: total,
-                amount_received: total,
-                change_amount: 0,
-                transaction_reference: status.mpesa_receipt || req.checkout_request_id,
-                mpesa_phone: req.phone,
-              });
-            } else if (['failed', 'cancelled', 'timeout'].includes(status.status)) {
-              stopPoll();
-              stkBtn.disabled = false;
-              stkStatus.className = 'text-sm text-red-600 min-h-[1.5em]';
-              stkStatus.textContent = `❌ ${status.status === 'cancelled' ? 'Customer cancelled the prompt' : status.status === 'timeout' ? 'No response from the phone — try again' : (status.result_desc || 'Payment failed')}.`;
-            } else if (Date.now() - startedAt > 125000) {
-              stopPoll();
-              stkBtn.disabled = false;
-              stkStatus.className = 'text-sm text-red-600 min-h-[1.5em]';
-              stkStatus.textContent = '⏱ No response yet — ask the customer to check their M-Pesa menu, or try again.';
-            }
-          } catch { /* transient - next tick retries */ }
-        }, 3000);
-      } catch (err) {
-        stkBtn.disabled = false;
-        stkStatus.className = 'text-sm text-red-600 min-h-[1.5em]';
-        stkStatus.textContent = err.message;
-      }
-    });
-  }
+  render();
 }
 
 /** Pass a sale id (fetches it) or an already-built sale object (offline receipts). */

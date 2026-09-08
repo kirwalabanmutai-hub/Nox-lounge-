@@ -48,7 +48,8 @@ const OfflineStore = {
 };
 
 /** Build a receipt-shaped object from a queued payload, using cached prices - for display only until it syncs. */
-function buildOfflineSale(localId, payload, payment) {
+function buildOfflineSale(localId, payload) {
+  const payments = payload.payments || [];
   const settings = OfflineStore.getSettings() || {};
   const products = OfflineStore.getProducts();
   const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -73,8 +74,9 @@ function buildOfflineSale(localId, payload, payment) {
     created_at: new Date().toISOString(),
     cashier_name: (typeof API !== 'undefined' && API.user && API.user.name) || '',
     subtotal, discount, tax, total_amount: total,
-    amount_paid: payment.amount, change_due: Math.max((payment.amount_received || 0) - total, 0),
-    items, payments: [payment],
+    amount_paid: round2(payments.reduce((s, p) => s + (Number(p.amount) || 0), 0)),
+    change_due: round2(Math.max(payments.reduce((s, p) => s + (Number(p.amount_received ?? p.amount) || 0), 0) - total, 0)),
+    items, payments,
     _offline: true,
   };
 }
