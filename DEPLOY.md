@@ -80,10 +80,19 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 Open the URL, log in `admin` / `admin123`. Dashboard, Sell, Products should all work.
 That URL is what you send the owner.
 
-**Don't run the actual shop off this link.** The cloud copy needs internet to do
-anything — the opposite of the offline till. It's for demo/review only. For the owner
-to watch real sales from the real till, use the offline-first **cloud sync** feature
-instead (INSTALL.md → *Remote reporting*).
+**The hosted copy now works offline too, after its first visit.** It's a PWA: once
+opened once while online, the browser caches the app so it keeps loading with no
+connection, and any sale made offline is saved on that device and synced automatically
+the next time it's back online (a small "N sales waiting to sync" badge shows in the
+sidebar until then). This only applies **per device/browser** that has opened it before —
+a phone that has never opened the link still needs internet the first time.
+
+That said, it's still not a substitute for the real till for day-to-day trading: the
+offline queue lives in that one browser's local storage, isn't shared between devices,
+and a full browser data wipe clears it. For the actual shop counter, use the local
+install (INSTALL.md), which has no such caveats. For the owner to watch real sales from
+the real till remotely, use the offline-first **cloud sync** feature instead
+(INSTALL.md → *Remote reporting*).
 
 ---
 

@@ -10,6 +10,9 @@
        navigation feel sluggish. Still fully offline - no CDN. -->
   <link rel="stylesheet" href="/css/tailwind.css" />
   <link rel="stylesheet" href="/css/styles.css" />
+  <!-- PWA: once opened while online, this lets the app load offline afterward -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#7c3aed" />
 </head>
 <body class="bg-slate-100 text-slate-800">
 
@@ -63,6 +66,7 @@
     <aside class="bg-slate-900 text-slate-300 md:w-60 w-full md:min-h-screen flex md:flex-col">
       <div class="p-4 text-white font-bold text-lg flex items-center gap-2">🍾 <span class="hidden md:inline">Liquor POS</span></div>
       <nav id="nav" class="flex md:flex-col gap-1 px-2 pb-2 flex-1 overflow-x-auto"></nav>
+      <div id="queue-badge" class="mx-3 mb-2 text-xs font-semibold text-amber-300 bg-amber-900/40 rounded px-2 py-1" hidden></div>
       <div class="p-3 border-t border-slate-800 hidden md:block">
         <p id="who" class="text-sm font-medium text-white"></p>
         <p id="who-role" class="text-xs text-slate-400 capitalize"></p>
@@ -76,6 +80,7 @@
   <div id="toast" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
   <script src="/js/api.js"></script>
+  <script src="/js/offline.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

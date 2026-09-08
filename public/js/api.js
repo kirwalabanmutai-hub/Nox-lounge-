@@ -26,9 +26,13 @@ const API = {
         body: body ? JSON.stringify(body) : undefined,
       });
     } catch (networkErr) {
-      // server unreachable (offline / server stopped) - not an internet problem
+      // No connection at all (or the local server isn't running). Tagged
+      // `.offline` so callers (e.g. checkout) can queue-and-retry instead
+      // of just failing.
       setOffline(true);
-      throw new Error('Cannot reach the POS server. Check that it is running.');
+      const err = new Error('No connection — working offline.');
+      err.offline = true;
+      throw err;
     }
     setOffline(false);
     let data = null;
@@ -53,7 +57,7 @@ function setOffline(on) {
     if (!el) {
       el = document.createElement('div');
       el.id = 'offline-bar';
-      el.textContent = '⚠ Offline - cannot reach the POS server. Retrying automatically…';
+      el.textContent = '⚠ No connection - working offline. Sales are saved on this device and will sync automatically.';
       el.style.cssText =
         'position:fixed;top:0;left:0;right:0;z-index:60;background:#991b1b;color:#fff;' +
         'text-align:center;padding:.4rem;font-size:.85rem;font-weight:600';

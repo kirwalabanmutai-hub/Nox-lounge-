@@ -114,7 +114,19 @@ function route() {
   view().catch((err) => {
     content().innerHTML = `<div class="card p-6 text-red-600">${esc(err.message)}</div>`;
   });
+  refreshQueueBadge();
 }
+
+/** Shows/updates the "N sales waiting to sync" pill in the sidebar. Called
+ *  from route() and after offline.js flushes the queue. */
+function refreshQueueBadge() {
+  const el = document.getElementById('queue-badge');
+  if (!el || typeof OfflineStore === 'undefined') return;
+  const n = OfflineStore.queueCount();
+  el.hidden = n === 0;
+  el.textContent = n ? `⏳ ${n} sale${n === 1 ? '' : 's'} waiting to sync` : '';
+}
+setInterval(refreshQueueBadge, 5000);
 
 /* ---------------------------------------------------------- helpers */
 function pageHead(title, sub, actions = '') {
@@ -203,11 +215,29 @@ VIEWS.dashboard = async () => {
 
 /* -------------------------------------------------- Sell (POS terminal) */
 VIEWS.sell = async () => {
-  const [products, cats] = await Promise.all([API.get('/products'), API.get('/categories')]);
+  let products, cats, offlineData = false;
+  try {
+    [products, cats] = await Promise.all([API.get('/products'), API.get('/categories')]);
+    OfflineStore.cacheProducts(products);
+    OfflineStore.cacheCategories(cats);
+  } catch (err) {
+    if (!err.offline) throw err;
+    products = OfflineStore.getProducts();
+    cats = OfflineStore.getCategories();
+    offlineData = true;
+    if (!products.length) {
+      content().innerHTML = pageHead('Sell', 'No connection') +
+        `<div class="card p-6 text-slate-500">No connection, and no products cached on this device yet.
+         Open Sell once while online first — after that it keeps working offline.</div>`;
+      return;
+    }
+  }
   let mpesaConfigured = false;
-  try { mpesaConfigured = (await API.get('/mpesa/config')).configured; } catch { /* endpoint optional */ }
+  try { mpesaConfigured = (await API.get('/mpesa/config')).configured; } catch { /* offline or optional */ }
 
-  content().innerHTML = pageHead('Sell', 'Add products to the cart and check out') + `
+  content().innerHTML = pageHead('Sell', offlineData
+      ? 'No connection — showing the last synced products, sales will queue and sync later'
+      : 'Add products to the cart and check out') + `
     <div class="grid lg:grid-cols-3 gap-4">
       <div class="lg:col-span-2 card p-4">
         <div class="flex gap-2 mb-3">
@@ -235,7 +265,19 @@ VIEWS.sell = async () => {
     </div>`;
 
   let allProducts = products;
-  const settings = await API.get('/settings');
+  let settings;
+  try {
+    settings = await API.get('/settings');
+    OfflineStore.cacheSettings(settings);
+  } catch (err) {
+    if (!err.offline) throw err;
+    settings = OfflineStore.getSettings() || { tax_enabled: 0, tax_rate: 0, business_name: 'Nox Lounge' };
+  }
+
+  const pending = OfflineStore.queueCount();
+  if (pending) {
+    toast(`${pending} offline sale${pending === 1 ? '' : 's'} waiting to sync`, '');
+  }
 
   const renderGrid = () => {
     const q = document.getElementById('psearch').value.toLowerCase().trim();
@@ -408,17 +450,33 @@ function openCheckout(settings, mpesaConfigured) {
   updateChange();
 
   async function finalizeSale(payment) {
-    const sale = await API.post('/sales', {
+    const payload = {
       customer_name: form.customer.value || null,
       discount: disc,
       items: cart.map((l) => ({ product_id: l.product.id, quantity: l.quantity })),
       payments: [payment],
-    });
+    };
+
+    let sale;
+    try {
+      sale = await API.post('/sales', payload);
+      toast(`Sale ${sale.receipt_number} recorded`, 'success');
+    } catch (err) {
+      if (!err.offline) throw err; // a real rejection (bad payment method, insufficient stock, etc.) - surface it
+      // No connection: save locally now, sync automatically once it's back.
+      // Cash/card sales are fine to record this way (money is already in
+      // hand); M-Pesa's own flow only reaches here after Safaricom already
+      // confirmed the payment, so it's safe there too.
+      const localId = OfflineStore.queueSale(payload);
+      OfflineStore.applyLocalStock(payload.items);
+      sale = buildOfflineSale(localId, payload, payment);
+      toast('No connection — sale saved on this device, will sync automatically', 'error');
+    }
+
     closeModal();
     cart.length = 0;
-    toast(`Sale ${sale.receipt_number} recorded`, 'success');
     route();              // rebuild the Sell view with fresh stock + empty cart
-    showReceipt(sale.id);
+    showReceipt(sale);
   }
 
   // ---- Cash / Card / Bank: cashier confirms once money is in hand ----
@@ -490,11 +548,17 @@ function openCheckout(settings, mpesaConfigured) {
   }
 }
 
-async function showReceipt(id) {
-  const s = await API.get(`/sales/${id}`);
-  const settings = await API.get('/settings');
+/** Pass a sale id (fetches it) or an already-built sale object (offline receipts). */
+async function showReceipt(idOrSale) {
+  const isOffline = typeof idOrSale === 'object';
+  const s = isOffline ? idOrSale : await API.get(`/sales/${idOrSale}`);
+  let settings;
+  try { settings = await API.get('/settings'); OfflineStore.cacheSettings(settings); }
+  catch (err) { if (!err.offline) throw err; settings = OfflineStore.getSettings() || {}; }
+
   modal(`
     <div id="receipt-print">
+      ${s._offline ? `<p class="text-center text-xs font-semibold text-amber-600 mb-2">⚠ Saved offline — will sync automatically once back online</p>` : ''}
       <div class="text-center mb-3">
         <p class="font-bold text-lg">${esc(settings.business_name)}</p>
         <p class="text-xs text-slate-500">${esc(settings.address || '')} ${settings.phone ? '· ' + esc(settings.phone) : ''}</p>
